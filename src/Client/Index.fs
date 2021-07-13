@@ -5,8 +5,6 @@ open Fable.FontAwesome
 open Fable.Core.JsInterop
 open Fable.React
 open Fable.React.Props
-open Fable.Recharts
-open Fable.Recharts.Props
 open Fable.Remoting.Client
 open Fulma
 open Leaflet
@@ -16,14 +14,13 @@ open Shared
 /// The different elements of the completed report.
 type Report =
     { Location : LocationResponse
-      Crimes : CrimeResponse array
       Weather : WeatherResponse }
 
 type ServerState = Idle | Loading | ServerError of string
 
 /// The overall data model driving the view.
 type Model =
-    { Postcode : string
+    { PostalCode : string
       ValidationError : string option
       ServerState : ServerState
       Report : Report option }
@@ -31,39 +28,37 @@ type Model =
 /// The different types of messages in the system.
 type Msg =
     | GetReport
-    | PostcodeChanged of string
+    | PostalCodeChanged of string
     | GotReport of Report
     | ErrorMsg of exn
     | Clear
 
 /// The init function is called to start the message pump with an initial view.
 let init () =
-    { Postcode = ""
+    { PostalCode = ""
       Report = None
       ValidationError = None
-      ServerState = Idle }, Cmd.ofMsg (PostcodeChanged "")
+      ServerState = Idle }, Cmd.ofMsg (PostalCodeChanged "")
 
 let dojoApi =
     Remoting.createApi()
     |> Remoting.withRouteBuilder Route.builder
     |> Remoting.buildProxy<IDojoApi>
 
-let getResponse postcode = async {
-    let! location = dojoApi.GetDistance postcode
-    let! crimes = dojoApi.GetCrimes postcode
-    let! weather = dojoApi.GetWeather postcode
+let getResponse postalCode = async {
+    let! location = dojoApi.GetDistance postalCode
+    let! weather = dojoApi.GetWeather postalCode
 
     return
         { Location = location
-          Crimes = crimes
           Weather = weather }
 }
 
 /// The update function knows how to update the model given a message.
 let update msg model =
     match model, msg with
-    | { ValidationError = None; Postcode = postcode }, GetReport ->
-        { model with ServerState = Loading }, Cmd.OfAsync.either getResponse postcode GotReport ErrorMsg
+    | { ValidationError = None; PostalCode = postalCode }, GetReport ->
+        { model with ServerState = Loading }, Cmd.OfAsync.either getResponse postalCode GotReport ErrorMsg
     | _, GetReport ->
         model, Cmd.none
     | _, GotReport response ->
@@ -71,13 +66,13 @@ let update msg model =
             ValidationError = None
             Report = Some response
             ServerState = Idle }, Cmd.none
-    | _, PostcodeChanged p ->
+    | _, PostalCodeChanged p ->
         { model with
-            Postcode = p
+            PostalCode = p
             ValidationError =
-                match Validation.isValidPostcode p with
+                match Validation.isValidPostalCode p with
                 | true -> None
-                | false -> Some "Please enter a valid UK Post Code"
+                | false -> Some "Please enter a valid Canadian postal code"
         }, Cmd.none
     | _, ErrorMsg e ->
         { model with ServerState = ServerError e.Message }, Cmd.none
@@ -91,25 +86,6 @@ module ViewParts =
             Notification.notification [ Notification.Props [ Style [ Height "100%"; Width "100%" ] ] ] [
                 Heading.h2 [] [ str title ]
                 yield! content
-            ]
-        ]
-
-    let crimeTile crimes =
-        let cleanData =
-            crimes |> Array.map (fun c -> { c with Crime = c.Crime.[0..0].ToUpper() + c.Crime.[1..].Replace('-', ' ') } )
-        basicTile "Crime" [] [
-            barChart [
-                Chart.Data cleanData
-                Chart.Width 600.
-                Chart.Height 500.
-                Chart.Layout Vertical ] [
-
-                xaxis [ Cartesian.Type "number" ] []
-                yaxis [ Cartesian.Type "category"; Cartesian.DataKey "Crime"; Cartesian.Width 200. ] []
-                bar [ Cartesian.DataKey "Incidents"; Cartesian.Custom("fill", "#8884d8") ] []
-                cartesianGrid [ Cartesian.Custom("strokeDasharray", "3 3") ] [ ]
-                legend [] []
-                tooltip [] []
             ]
         ]
 
@@ -127,13 +103,12 @@ module ViewParts =
                 MapProps.Style [ Height 500 ]
             ] [
                 tileLayer [ TileLayerProps.Url "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" ] []
-                makeMarker latLong (sprintf "%s - %s" lr.Postcode lr.Location.Town)
-                (* Task 3.4 MAP: Create a marker for the map. Use the makeMarker function above. *)
+                makeMarker latLong (sprintf "%s - %s, %s" lr.PostalCode lr.Location.City lr.Location.Province)
             ]
         ]
 
     let weatherTile weatherReport =
-        basicTile "Weather" [] [
+        basicTile "Today's Weather" [] [
             Level.level [ ] [
                 Level.item [ Level.Item.HasTextCentered ] [
                     div [ ] [
@@ -143,10 +118,13 @@ module ViewParts =
                             ]
                         ]
                         Level.title [ ] [
-                            Heading.h3 [ Heading.Is4; Heading.Props [ Style [ Width "100%" ] ] ] [
-                                (* Task 4.7 WEATHER: Get the temperature from the given weather report
-                                   and display it here instead of an empty string. *)
-                                str (sprintf "Avg Temp: %.0f C" weatherReport.AverageTemperature)
+                            Heading.h3 [ Heading.Is3; Heading.Props [ Style [ Width "100%" ] ] ] [
+                                str (sprintf "Low: %.0f C" weatherReport.LowTemp)
+                            ]
+                        ]
+                        Level.title [ ] [
+                            Heading.h3 [ Heading.Is3; Heading.Props [ Style [ Width "100%" ] ] ] [
+                                str (sprintf "High: %.0f C" weatherReport.HighTemp)
                             ]
                         ]
                     ]
@@ -156,9 +134,9 @@ module ViewParts =
     let locationTile model =
         basicTile "Location" [] [
             div [ ] [
-                Heading.h3 [ ] [ str model.Location.Location.Town ]
-                Heading.h4 [ ] [ str model.Location.Location.Region ]
-                Heading.h4 [ ] [ sprintf "%.1f KM to London" model.Location.DistanceToLondon |> str ]
+                Heading.h3 [ ] [ str model.Location.Location.City ]
+                Heading.h4 [ ] [ str model.Location.Location.Province ]
+                Heading.h4 [ ] [ sprintf "%.1f KM to Parliament Hill" model.Location.DistanceToParliamentHill |> str ]
             ]
         ]
 
@@ -173,7 +151,7 @@ let view (model:Model) dispatch =
                     Container.Modifiers [ Modifier.TextAlignment (Screen.All, TextAlignment.Centered) ]
                 ] [
                     Heading.h1 [ ] [
-                        str "Jason Dojo Practice"
+                        str "SAFE Dojo - Canadian Flavour"
                     ]
                 ]
             ]
@@ -181,14 +159,14 @@ let view (model:Model) dispatch =
 
         Container.container [] [
             Field.div [] [
-                Label.label [] [ str "Postcode" ]
+                Label.label [] [ str "PostalCode" ]
                 Control.div [ Control.HasIconLeft; Control.HasIconRight ] [
                     Input.text [
-                        Input.Placeholder "Ex: EC2A 4NE"
-                        Input.Value model.Postcode
+                        Input.Placeholder "e.g. K1A 0A9"
+                        Input.Value model.PostalCode
                         Input.Modifiers [ Modifier.TextTransform TextTransform.UpperCase ]
                         Input.Color (if model.ValidationError.IsSome then Color.IsDanger else Color.IsSuccess)
-                        Input.Props [ OnChange (fun ev -> dispatch (PostcodeChanged !!ev.target?value)); onKeyDown Key.enter (fun _ -> dispatch GetReport) ]
+                        Input.Props [ OnChange (fun ev -> dispatch (PostalCodeChanged !!ev.target?value)); onKeyDown Key.enter (fun _ -> dispatch GetReport) ]
                     ]
                     Fulma.Icon.icon [ Icon.Size IsSmall; Icon.IsLeft ] [ Fa.i [ Fa.Solid.Home ] [] ]
                     match model with
@@ -240,17 +218,12 @@ let view (model:Model) dispatch =
                 Tile.ancestor [
                     Tile.Size Tile.Is12
                 ] [
-                    Tile.parent [ Tile.Size Tile.Is12 ] [
+                    Tile.parent [ Tile.Size Tile.Is8 ] [
                         mapTile report.Location
                     ]
-                ]
-                Tile.ancestor [ ] [
                     Tile.parent [ Tile.IsVertical; Tile.Size Tile.Is4 ] [
                         locationTile report
                         weatherTile report.Weather
-                    ]
-                    Tile.parent [ Tile.Size Tile.Is8 ] [
-                        crimeTile report.Crimes
                     ]
                 ]
         ]

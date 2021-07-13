@@ -4,47 +4,30 @@ open DataAccess
 open FSharp.Data.UnitSystems.SI.UnitNames
 open Shared
 
-let private london = { Latitude = 51.5074; Longitude = 0.1278 }
+let private parliamentHill = { Latitude = 45.425507; Longitude = -75.700233 }
 
-let getDistanceFromLondon postcode = async {
-    if not (Validation.isValidPostcode postcode) then failwith "Invalid postcode"
+let getDistanceFromParliamentHill postalCode = async {
+    if not (Validation.isValidPostalCode postalCode) then failwith "Invalid postal code"
 
-    let! location = getLocation postcode
-    let distanceToLondon = getDistanceBetweenPositions location.LatLong london
-    return { Postcode = postcode; Location = location; DistanceToLondon = (distanceToLondon / 1000.<meter>) }
-}
-
-let getCrimeReport postcode = async {
-    if not (Validation.isValidPostcode postcode) then failwith "Invalid postcode"
-
-    let! location = getLocation postcode
-    let! reports = getCrimesNearPosition location.LatLong
-    let crimes =
-        reports
-        |> Array.countBy(fun r -> r.Category)
-        |> Array.sortByDescending snd
-        |> Array.map(fun (k, c) -> { Crime = k; Incidents = c })
-    return crimes
+    let! location = getLocation postalCode
+    let distanceToParliamentHill = getDistanceBetweenPositions location.LatLong parliamentHill
+    return { PostalCode = postalCode; Location = location; DistanceToParliamentHill = (distanceToParliamentHill / 1000.<meter>) }
 }
 
 let private asWeatherResponse (weather:DataAccess.Weather.MetaWeatherLocation.Root) =
-    { WeatherType =
-        weather.ConsolidatedWeather
-        |> Array.countBy(fun w -> w.WeatherStateName)
-        |> Array.maxBy snd
-        |> fst
-        |> WeatherType.Parse
-      AverageTemperature = weather.ConsolidatedWeather |> Array.averageBy(fun r -> float r.TheTemp) }
+    let today = weather.ConsolidatedWeather.[0]
+    { WeatherType = today.WeatherStateName |> WeatherType.Parse
+      LowTemp = today.MinTemp |> float
+      HighTemp = today.MaxTemp |> float }
 
-let getWeather postcode = async {
-    let! location = getLocation postcode
+let getWeather postalCode = async {
+    let! location = getLocation postalCode
     let! position = getWeatherForPosition location.LatLong
     let response = asWeatherResponse position
-    return! async.Return { WeatherType = response.WeatherType; AverageTemperature = response.AverageTemperature }
+    return! async.Return { WeatherType = response.WeatherType; LowTemp = response.LowTemp; HighTemp = response.HighTemp }
 }
 
 let dojoApi =
-    { GetDistance = getDistanceFromLondon
-      GetCrimes = getCrimeReport
+    { GetDistance = getDistanceFromParliamentHill
       GetWeather = getWeather
     }

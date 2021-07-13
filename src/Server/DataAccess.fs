@@ -6,14 +6,14 @@ open Shared
 [<AutoOpen>]
 module GeoLocation =
     open FSharp.Data.UnitSystems.SI.UnitNames
-    type PostcodesIO = JsonProvider<"http://api.postcodes.io/postcodes/EC2A4NE">
+    type PostalCodesIO = JsonProvider<"https://geocoder.ca/K1A0A9?json=1">
 
-    let getLocation postcode = async {
-        let! postcode = postcode |> sprintf "http://api.postcodes.io/postcodes/%s" |> PostcodesIO.AsyncLoad
+    let getLocation postalCode = async {
+        let! postalCode = postalCode |> sprintf "https://geocoder.ca/%s?json=1" |> PostalCodesIO.AsyncLoad
         return
-            { LatLong = { Latitude = float postcode.Result.Latitude; Longitude = float postcode.Result.Longitude }
-              Town = postcode.Result.AdminDistrict
-              Region = postcode.Result.Nuts } }
+            { LatLong = { Latitude = float postalCode.Latt; Longitude = float postalCode.Longt }
+              City = postalCode.Standard.City
+              Province = postalCode.Standard.Prov } }
 
     let getDistanceBetweenPositions pos1 pos2 =
         let lat1, lng1 = pos1.Latitude, pos1.Longitude
@@ -28,24 +28,18 @@ module GeoLocation =
         let c = 2.0 * atan2 (sqrt a) (sqrt (1.0 - a))
         R * c * 1.<meter>
 
-[<AutoOpen>]
-module Crime =
-    type PoliceUkCrime = JsonProvider<"https://data.police.uk/api/crimes-street/all-crime?lat=51.5074&lng=0.1278">
-    let getCrimesNearPosition location =
-        (location.Latitude, location.Longitude)
-        ||> sprintf "https://data.police.uk/api/crimes-street/all-crime?lat=%f&lng=%f"
-        |> PoliceUkCrime.AsyncLoad
 
 [<AutoOpen>]
 module Weather =
-    type MetaWeatherSearch = JsonProvider<"https://www.metaweather.com/api/location/search/?lattlong=51.5074,0.1278">
-    type MetaWeatherLocation = JsonProvider<"https://www.metaweather.com/api/location/1393672">
+    type MetaWeatherSearch = JsonProvider<"https://www.metaweather.com/api/location/search/?lattlong=45.425507,-75.700233">
+    type MetaWeatherLocation = JsonProvider<"https://www.metaweather.com/api/location/4118">
     let getWeatherForPosition location = async {
         let! locations =
             (location.Latitude, location.Longitude)
             ||> sprintf "https://www.metaweather.com/api/location/search/?lattlong=%f,%f"
             |> MetaWeatherSearch.AsyncLoad
         let bestLocationId = locations |> Array.sortBy (fun t -> t.Distance) |> Array.map (fun o -> o.Woeid) |> Array.head
+
         return!
             bestLocationId
             |> sprintf "https://www.metaweather.com/api/location/%d"
